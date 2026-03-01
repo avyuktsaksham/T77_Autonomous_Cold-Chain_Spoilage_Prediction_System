@@ -1,5 +1,5 @@
 .navbar {
-  background: rgba(26, 29, 46, 0.8);
+  background: rgba(0, 0, 0, 0.85);
   backdrop-filter: blur(10px);
   padding: 1rem 0;
   position: fixed;
@@ -7,7 +7,7 @@
   left: 0;
   right: 0;
   z-index: 1000;
-  border-bottom: 1px solid rgba(124, 58, 237, 0.1);
+  border-bottom: 1px solid rgba(124, 58, 237, 0.2);
 }
 
 .navbar-container {
