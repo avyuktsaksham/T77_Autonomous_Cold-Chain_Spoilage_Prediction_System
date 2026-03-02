@@ -460,6 +460,8 @@ React-based web app displays real-time shipment map, risk scores, predictions, a
 
 **Workflow Example:**  
 Sensor reads temperature spike → MQTT publish → Edge gateway receives → Edge AI model infers risk = 0.85, time-to-fail = 2.5 hours → Sends prediction to cloud → Agentic Engine queries shipment context + route alternatives → Agent decides "reroute to DC-B" → Calls TMS API → Logs decision → GenAI generates explanation with SOP refs → Dashboard displays risk, action, explanation → Operator reviews and approves/overrides.
+![Workflow](workflow.png)
+![State Transition](state_transition.png)
 
 ---
 
@@ -492,44 +494,42 @@ Data will be backed up nightly. No personal/sensitive information (only simulate
 ## 12. 📊 Technical Workflow Diagrams
 
 ### 12.1 State Transition Diagram
-
-*(Diagram content from PDF included here)*
+![State Transition Diagram](state_transition.png)
 
 ---
 
 ### 12.2 Sequence Diagram
 
-*(Diagram content from PDF included here)*
-
+![Sequence Diagram](sequence.png)
 ---
 
 ### 12.3 Use Case Diagram
 
-*(Diagram content from PDF included here)*
+![Use Case Diagram](use_case.png)
 
 ---
 
 ### 12.4 Data Flow Diagram
 
-*(Diagram content from PDF included here)*
+![Data Flow Diagram](data_flow.png)
 
 ---
 
 ### 12.5 ER Diagram
 
-*(Diagram content from PDF included here)*
+![ER Diagram](er.png)
 
 ---
 
 ### 12.6 Technical Workflow Diagram
 
-*(Diagram content from PDF included here)*
+![Technical Workflow Diagram](workflow.png)
 
 ---
 
 ### 12.7 Work Architecture Diagram
 
-*(Diagram content from PDF included here)*
+![Work Architecture Diagram](work_architecture.png)
 
 ---
 
