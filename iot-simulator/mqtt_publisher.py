@@ -7,6 +7,8 @@ import argparse
 import socket
 import ssl
 from typing import Optional, Dict, Any, List
+from dotenv import load_dotenv
+from pymongo import MongoClient
 
 import paho.mqtt.client as mqtt
 
@@ -43,6 +45,18 @@ def _env_str(name: str, default: str = "") -> str:
 
 def _safe_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)
+
+def init_mongo():
+    uri = os.getenv("MONGODB_URI", "").strip()
+    db_name = os.getenv("MONGODB_DB", "cold_chain_database").strip()
+    coll_name = os.getenv("MONGODB_COLLECTION", "sensors_data").strip()
+
+    if not uri:
+        return None, None
+
+    client = MongoClient(uri)
+    coll = client[db_name][coll_name]
+    return client, coll
 
 def fancy_print_telemetry(t: Dict[str, Any]):
     ts = t.get("timestamp", "")
@@ -196,11 +210,13 @@ class MQTTPublisher:
         self.client.publish(self.topic_telemetry_all(), payload=payload, qos=self.qos, retain=False)
 
 
-def run_fleet_mode(pub: MQTTPublisher, interval_sec: int):
-    fleet: FleetSimulator = create_default_fleet(publish_interval_sec=interval_sec)
-
+def run_fleet_mode(pub: MQTTPublisher, interval_sec: int, fleet_size: int, fancy: bool = True):
+    fleet: FleetSimulator = create_default_fleet(publish_interval_sec=interval_sec, fleet_size=fleet_size)
+    mongo_client, coll = init_mongo()
     while True:
         batch = fleet.tick_all()
+        if coll is not None:
+            coll.insert_many(batch)
         for t in batch:
             pub.publish_asset_telemetry(t)
             fancy_print_telemetry(t)
@@ -243,9 +259,11 @@ def run_single_mode(
         publish_interval_sec=interval_sec,
         seed=7
     )
-
+    mongo_client, coll = init_mongo()
     while True:
         t = sim.get_telemetry()
+        if coll is not None:
+            coll.insert_one(t)
         pub.publish_asset_telemetry(t)
         fancy_print_telemetry(t)
         time.sleep(interval_sec)
@@ -272,7 +290,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--client-key", default=_env_str("MQTT_CLIENT_KEY", ""))
     p.add_argument("--tls-insecure", action="store_true", default=_env_bool("MQTT_TLS_INSECURE", False))
 
-    p.add_argument("--interval", type=int, default=_env_int("PUBLISH_INTERVAL_SEC", 5))
+    p.add_argument("--interval", type=int, default=_env_int("PUBLISH_INTERVAL_SEC", 1))
+    p.add_argument("--fleet-size", type=int, default=_env_int("FLEET_SIZE", 50))
 
     p.add_argument("--asset-id", default="TRUCK_001")
     p.add_argument("--cargo-type", default="vaccines")
@@ -282,6 +301,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main():
+    load_dotenv()
     args = build_arg_parser().parse_args()
 
     pub = MQTTPublisher(
@@ -317,7 +337,7 @@ def main():
 
     try:
         if args.mode == "fleet":
-            run_fleet_mode(pub, interval_sec=args.interval)
+            run_fleet_mode(pub, interval_sec=args.interval, fleet_size=args.fleet_size, fancy=True)
         else:
             run_single_mode(
                 pub,
