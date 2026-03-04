@@ -495,7 +495,7 @@ class FleetSimulator:
         time.sleep(self.publish_interval_sec)
 
 
-def create_default_fleet(publish_interval_sec: int = 5) -> FleetSimulator:
+def create_default_fleet(publish_interval_sec: int = 1, fleet_size: int = 50) -> FleetSimulator:
     route_agra_delhi = Route(
         origin=(27.1767, 78.0081), destination=(28.7041, 77.1025), waypoints=[(27.4924, 77.6737)]
     )
@@ -509,25 +509,37 @@ def create_default_fleet(publish_interval_sec: int = 5) -> FleetSimulator:
         origin=(28.7041, 77.1025), destination=(28.4595, 77.0266), waypoints=None
     )
 
-    trucks = [
-        TruckConfig("TRUCK_001", "vaccines", ShipmentScenario.micro_excursions(), route_agra_delhi, seed=1),
-        TruckConfig("TRUCK_002", "meat", ShipmentScenario.normal(), route_agra_kanpur, seed=2),
-        TruckConfig("TRUCK_003", "dairy", ShipmentScenario.micro_excursions(), route_mathura_noida, seed=3),
-        TruckConfig("TRUCK_004", "pharmaceuticals", ShipmentScenario.normal(), route_delhi_gurgaon, seed=4),
-        TruckConfig("TRUCK_005", "frozen_food", ShipmentScenario.refrigeration_failure(fail_at_min=25), route_agra_delhi, seed=5),
-        TruckConfig("TRUCK_006", "produce", ShipmentScenario.normal(), route_mathura_noida, seed=6),
-        TruckConfig("TRUCK_007", "seafood", ShipmentScenario.micro_excursions(), route_agra_kanpur, seed=7),
-        TruckConfig("TRUCK_008", "ice_cream", ShipmentScenario.micro_excursions(), route_agra_delhi, seed=8),
-        TruckConfig("TRUCK_009", "blood_plasma", ShipmentScenario.normal(), route_delhi_gurgaon, seed=9),
-        TruckConfig("TRUCK_010", "flowers", ShipmentScenario.micro_excursions(), route_mathura_noida, seed=10),
-    ]
+    routes = [route_agra_delhi, route_mathura_noida, route_agra_kanpur, route_delhi_gurgaon]
+    cargo_types = list(CARGO_PROFILES.keys())
 
-    return FleetSimulator(trucks=trucks, publish_interval_sec=publish_interval_sec)
+    trucks: List[TruckConfig] = []
+    for i in range(int(fleet_size)):
+        asset_id = f"TRUCK_{i+1:03d}"
+        cargo_type = cargo_types[i % len(cargo_types)]
+        route = routes[i % len(routes)]
 
+        if i % 10 == 4:
+            scenario = ShipmentScenario.refrigeration_failure(fail_at_min=25)
+        elif i % 3 == 0:
+            scenario = ShipmentScenario.micro_excursions()
+        else:
+            scenario = ShipmentScenario.normal()
+
+        trucks.append(
+            TruckConfig(
+                asset_id=asset_id,
+                cargo_type=cargo_type,
+                scenario=scenario,
+                route=route,
+                seed=i + 1,
+            )
+        )
+
+    return FleetSimulator(trucks=trucks, publish_interval_sec=int(publish_interval_sec))
 
 if __name__ == "__main__":
     print("Supported cargo types:", ", ".join(CARGO_PROFILES.keys()))
-    fleet = create_default_fleet(publish_interval_sec=5)
+    fleet = create_default_fleet(publish_interval_sec=1, fleet_size=50)
 
     try:
         while True:
