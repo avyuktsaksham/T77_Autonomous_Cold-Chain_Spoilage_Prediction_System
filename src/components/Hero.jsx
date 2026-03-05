@@ -1,6 +1,9 @@
+import { useNavigate } from 'react-router-dom';
 import './Hero.css';
 
 const Hero = () => {
+  const navigate = useNavigate();
+
   return (
     <section className="hero">
       <div className="hero-container">
@@ -15,8 +18,8 @@ const Hero = () => {
           Solution. Predict Spoilage, Optimize Storage, and Scale Your Operations.
         </p>
         
-        <button className="hero-cta">
-          Start Free Prediction
+        <button className="hero-cta" onClick={() => navigate('/rooms')}>
+          Look
         </button>
       </div>
     </section>
