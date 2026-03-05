@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import random
 import os
 import json
 import time
@@ -49,14 +49,17 @@ def _safe_json(obj: Any) -> str:
 def init_mongo():
     uri = os.getenv("MONGODB_URI", "").strip()
     db_name = os.getenv("MONGODB_DB", "cold_chain_database").strip()
-    coll_name = os.getenv("MONGODB_COLLECTION", "sensors_data").strip()
+    train_collname = os.getenv("MONGODB_COLLECTION_TRAINING", "sensors_data_training").strip()
+    test_collname  = os.getenv("MONGODB_COLLECTION_TESTING",  "sensors_data_testing").strip()
 
     if not uri:
-        return None, None
+        return None, None, None
 
     client = MongoClient(uri)
-    coll = client[db_name][coll_name]
-    return client, coll
+    db = client[db_name]
+    train_coll = db[train_collname]
+    test_coll = db[test_collname]
+    return client, train_coll, test_coll
 
 def fancy_print_telemetry(t: Dict[str, Any]):
     ts = t.get("timestamp", "")
@@ -212,11 +215,22 @@ class MQTTPublisher:
 
 def run_fleet_mode(pub: MQTTPublisher, interval_sec: int, fleet_size: int, fancy: bool = True):
     fleet: FleetSimulator = create_default_fleet(publish_interval_sec=interval_sec, fleet_size=fleet_size)
-    mongo_client, coll = init_mongo()
+    mongoclient, train_coll, test_coll = init_mongo()
+    split = float(os.getenv("TRAIN_SPLIT", "0.8"))
     while True:
         batch = fleet.tick_all()
-        if coll is not None:
-            coll.insert_many(batch)
+        if train_coll is not None and test_coll is not None:
+            train_docs = []
+            test_docs = []
+            for doc in batch:
+                if random.random() < split:
+                    train_docs.append(doc)
+                else:
+                    test_docs.append(doc)
+            if train_docs:
+                train_coll.insert_many(train_docs)
+            if test_docs:
+                test_coll.insert_many(test_docs)
         for t in batch:
             pub.publish_asset_telemetry(t)
             fancy_print_telemetry(t)
@@ -259,11 +273,15 @@ def run_single_mode(
         publish_interval_sec=interval_sec,
         seed=7
     )
-    mongo_client, coll = init_mongo()
+    mongoclient, train_coll, test_coll = init_mongo()
+    split = float(os.getenv("TRAIN_SPLIT", "0.8"))
     while True:
         t = sim.get_telemetry()
-        if coll is not None:
-            coll.insert_one(t)
+        if train_coll is not None and test_coll is not None:
+            if random.random() < split:
+                train_coll.insert_one(t)
+            else:
+                test_coll.insert_one(t)
         pub.publish_asset_telemetry(t)
         fancy_print_telemetry(t)
         time.sleep(interval_sec)
@@ -290,7 +308,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--client-key", default=_env_str("MQTT_CLIENT_KEY", ""))
     p.add_argument("--tls-insecure", action="store_true", default=_env_bool("MQTT_TLS_INSECURE", False))
 
-    p.add_argument("--interval", type=int, default=_env_int("PUBLISH_INTERVAL_SEC", 1))
+    p.add_argument("--interval", type=int, default=_env_int("PUBLISH_INTERVAL_SEC", 2))
     p.add_argument("--fleet-size", type=int, default=_env_int("FLEET_SIZE", 50))
 
     p.add_argument("--asset-id", default="TRUCK_001")
