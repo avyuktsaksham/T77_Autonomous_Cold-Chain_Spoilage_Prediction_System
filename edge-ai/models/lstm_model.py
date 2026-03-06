@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import torch
 import torch.nn as nn
 class LSTMRiskRegressor(nn.Module):
@@ -8,42 +9,48 @@ class LSTMRiskRegressor(nn.Module):
         hidden_size: int = 128,
         num_layers: int = 2,
         dropout: float = 0.20,
-        output_activation: str = "sigmoid",  # "sigmoid" keeps output in 0..1, "none" leaves it unbounded
+        output_activation: str = "sigmoid",
     ) -> None:
         super().__init__()
+
         if num_features <= 0:
             raise ValueError("num_features must be > 0")
-        self.num_features = int(num_features)
-        self.hidden_size = int(hidden_size)
-        self.num_layers = int(num_layers)
-        self.dropout = float(dropout)
+
         self.lstm = nn.LSTM(
-            input_size=self.num_features,
-            hidden_size=self.hidden_size,
-            num_layers=self.num_layers,
+            input_size=int(num_features),
+            hidden_size=int(hidden_size),
+            num_layers=int(num_layers),
             batch_first=True,
-            dropout=self.dropout if self.num_layers > 1 else 0.0,
+            dropout=float(dropout) if int(num_layers) > 1 else 0.0,
         )
+
         self.head = nn.Sequential(
-            nn.LayerNorm(self.hidden_size),
-            nn.Linear(self.hidden_size, 64),
+            nn.LayerNorm(int(hidden_size)),
+            nn.Linear(int(hidden_size), 64),
             nn.ReLU(),
-            nn.Dropout(self.dropout),
+            nn.Dropout(float(dropout)),
             nn.Linear(64, 1),
         )
+
         output_activation = (output_activation or "none").strip().lower()
         if output_activation not in {"sigmoid", "none"}:
             raise ValueError("output_activation must be 'sigmoid' or 'none'")
         self.output_activation = output_activation
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.dim() != 3:
             raise ValueError("Expected x shape (batch, seq_len, num_features)")
-        out, _ = self.lstm(x)  # out: (batch, seq_len, hidden)
-        last = out[:, -1, :]   # (batch, hidden)
-        y = self.head(last).squeeze(-1)  # (batch,)
+
+        out, _ = self.lstm(x)
+        last = out[:, -1, :]
+        y = self.head(last).squeeze(-1)
+
         if self.output_activation == "sigmoid":
             y = torch.sigmoid(y)
+
         return y
+
+
 def create_model(
     num_features: int,
     hidden_size: int = 128,
@@ -58,3 +65,15 @@ def create_model(
         dropout=dropout,
         output_activation=output_activation,
     )
+def count_parameters(model: nn.Module) -> int:
+    return int(sum(p.numel() for p in model.parameters() if p.requires_grad))
+if __name__ == "__main__":
+    nf = int(os.getenv("NUM_FEATURES", "16"))
+    hs = int(os.getenv("HIDDEN_SIZE", "128"))
+    nl = int(os.getenv("NUM_LAYERS", "2"))
+    dp = float(os.getenv("DROPOUT", "0.20"))
+
+    m = create_model(num_features=nf, hidden_size=hs, num_layers=nl, dropout=dp)
+    print("[lstm_model] Model created")
+    print(f"[lstm_model] num_features={nf} hidden_size={hs} num_layers={nl} dropout={dp}")
+    print(f"[lstm_model] trainable_params={count_parameters(m)}")
