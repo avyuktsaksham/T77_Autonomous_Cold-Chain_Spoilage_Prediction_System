@@ -293,7 +293,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--mode", choices=["fleet", "single"], default="fleet")
 
     p.add_argument("--host", default=_env_str("MQTT_HOST", "localhost"))
-    p.add_argument("--port", type=int, default=_env_int("MQTT_PORT", 1883))
+    p.add_argument("--port", type=int, default=_env_int("MQTT_PORT", 1882))
     p.add_argument("--username", default=_env_str("MQTT_USERNAME", ""))
     p.add_argument("--password", default=_env_str("MQTT_PASSWORD", ""))
 
