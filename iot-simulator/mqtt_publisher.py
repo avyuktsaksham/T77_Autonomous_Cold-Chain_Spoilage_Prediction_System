@@ -49,17 +49,15 @@ def _safe_json(obj: Any) -> str:
 def init_mongo():
     uri = os.getenv("MONGODB_URI", "").strip()
     db_name = os.getenv("MONGODB_DB", "cold_chain_database").strip()
-    train_collname = os.getenv("MONGODB_COLLECTION_TRAINING", "sensors_data_training").strip()
-    test_collname  = os.getenv("MONGODB_COLLECTION_TESTING",  "sensors_data_testing").strip()
+    collname = os.getenv("MONGODB_COLLECTION", "sensors_data").strip()
 
     if not uri:
-        return None, None, None
+        return None, None
 
     client = MongoClient(uri)
     db = client[db_name]
-    train_coll = db[train_collname]
-    test_coll = db[test_collname]
-    return client, train_coll, test_coll
+    coll = db[collname]
+    return client, coll
 
 def fancy_print_telemetry(t: Dict[str, Any]):
     ts = t.get("timestamp", "")
@@ -215,22 +213,11 @@ class MQTTPublisher:
 
 def run_fleet_mode(pub: MQTTPublisher, interval_sec: int, fleet_size: int, fancy: bool = True):
     fleet: FleetSimulator = create_default_fleet(publish_interval_sec=interval_sec, fleet_size=fleet_size)
-    mongoclient, train_coll, test_coll = init_mongo()
-    split = float(os.getenv("TRAIN_SPLIT", "0.8"))
+    mongoclient, coll = init_mongo()
     while True:
         batch = fleet.tick_all()
-        if train_coll is not None and test_coll is not None:
-            train_docs = []
-            test_docs = []
-            for doc in batch:
-                if random.random() < split:
-                    train_docs.append(doc)
-                else:
-                    test_docs.append(doc)
-            if train_docs:
-                train_coll.insert_many(train_docs)
-            if test_docs:
-                test_coll.insert_many(test_docs)
+        if coll is not None:
+            coll.insert_many(batch)
         for t in batch:
             pub.publish_asset_telemetry(t)
             fancy_print_telemetry(t)
@@ -273,15 +260,11 @@ def run_single_mode(
         publish_interval_sec=interval_sec,
         seed=7
     )
-    mongoclient, train_coll, test_coll = init_mongo()
-    split = float(os.getenv("TRAIN_SPLIT", "0.8"))
+    mongoclient, coll = init_mongo()
     while True:
         t = sim.get_telemetry()
-        if train_coll is not None and test_coll is not None:
-            if random.random() < split:
-                train_coll.insert_one(t)
-            else:
-                test_coll.insert_one(t)
+        if coll is not None:
+            coll.insert_one(t)
         pub.publish_asset_telemetry(t)
         fancy_print_telemetry(t)
         time.sleep(interval_sec)
@@ -293,7 +276,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--mode", choices=["fleet", "single"], default="fleet")
 
     p.add_argument("--host", default=_env_str("MQTT_HOST", "localhost"))
-    p.add_argument("--port", type=int, default=_env_int("MQTT_PORT", 1882))
+    p.add_argument("--port", type=int, default=_env_int("MQTT_PORT", 1880))
     p.add_argument("--username", default=_env_str("MQTT_USERNAME", ""))
     p.add_argument("--password", default=_env_str("MQTT_PASSWORD", ""))
 
