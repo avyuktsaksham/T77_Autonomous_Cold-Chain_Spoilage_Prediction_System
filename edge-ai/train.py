@@ -16,6 +16,7 @@ from pymongo import MongoClient
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 import joblib
 from dotenv import load_dotenv
+import matplotlib.pyplot as plt
 
 from models.lstm_model import create_model
 
@@ -69,6 +70,9 @@ class TrainConfig:
 
     fetch_log_every: int
 
+    history_csv_path: str
+    history_plot_path: str
+
 
 def load_config() -> TrainConfig:
     return TrainConfig(
@@ -82,12 +86,12 @@ def load_config() -> TrainConfig:
         # RTX 3050 4GB safe default
         batch_size=env_int("BATCH_SIZE", 128),
 
-        epochs=env_int("EPOCHS", 10),
+        epochs=env_int("EPOCHS", 40),
         lr=env_float("LR", 3e-4),
 
-        hidden_size=env_int("HIDDEN_SIZE", 128),
-        num_layers=env_int("NUM_LAYERS", 2),
-        dropout=env_float("DROPOUT", 0.20),
+        hidden_size=env_int("HIDDEN_SIZE", 256),
+        num_layers=env_int("NUM_LAYERS", 3),
+        dropout=env_float("DROPOUT", 0.15),
 
         val_split=env_float("VAL_SPLIT", 0.10),
         seed=env_int("SEED", 7),
@@ -97,6 +101,9 @@ def load_config() -> TrainConfig:
         meta_out_path=env_str("META_OUT_PATH", os.path.join("models", "model_meta.json")),
 
         fetch_log_every=env_int("FETCH_LOG_EVERY", 50000),
+
+        history_csv_path=env_str("HISTORY_CSV_PATH", os.path.join("models", "training_history.csv")),
+        history_plot_path=env_str("HISTORY_PLOT_PATH", os.path.join("models", "training_history.png")),
     )
 CATEGORICAL_COLS = ["cargo_type", "scenario"]
 NUMERIC_COLS = [
@@ -443,26 +450,54 @@ def main() -> None:
         num_layers=cfg.num_layers,
         dropout=cfg.dropout,
         output_activation="sigmoid",
+        bidirectional=True,
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=1e-4)
-    loss_fn = torch.nn.MSELoss()
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=0.5,
+        patience=3,
+        verbose=True,
+    )
+    loss_fn = torch.nn.SmoothL1Loss(beta=0.1)
+
 
     best_val_rmse = float("inf")
     best_state: Optional[Dict[str, torch.Tensor]] = None
+    patience = 6
+    bad_epochs = 0
+    history: List[Dict[str, float]] = []
 
     logger.info("Starting epochs...")
     for epoch in range(1, cfg.epochs + 1):
         logger.info(f"--- Epoch {epoch}/{cfg.epochs} ---")
         train_mse = train_one_epoch(model, train_loader, optimizer, loss_fn, device, log_every_batches=200)
         val_mse, val_rmse = eval_epoch(model, val_loader, loss_fn, device)
+        scheduler.step(val_rmse)
 
         logger.info(f"Epoch {epoch} done | train_mse={train_mse:.6f} | val_mse={val_mse:.6f} | val_rmse={val_rmse:.6f}")
+        current_lr = float(optimizer.param_groups[0]["lr"])
+
+        history.append({
+            "epoch": epoch,
+            "train_loss": float(train_mse),
+            "val_loss": float(val_mse),
+            "val_rmse": float(val_rmse),
+            "lr": current_lr,
+        })
 
         if val_rmse < best_val_rmse:
             best_val_rmse = val_rmse
             best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+            bad_epochs = 0
             logger.info(f"New best model saved in memory | best_val_rmse={best_val_rmse:.6f}")
+        else:
+            bad_epochs += 1
+            if bad_epochs >= patience:
+                logger.info(f"Early stopping triggered after {epoch} epochs")
+                break
 
     if best_state is None:
         raise RuntimeError("Training failed to produce a model state")
@@ -503,6 +538,8 @@ def main() -> None:
         "artifacts": {
             "model_path": cfg.model_out_path,
             "preprocessor_path": cfg.preproc_out_path,
+            "history_csv_path": cfg.history_csv_path,
+            "history_plot_path": cfg.history_plot_path,
         },
         "metrics": {
             "best_val_rmse": float(best_val_rmse),
@@ -518,7 +555,24 @@ def main() -> None:
     logger.info(f"Saved preprocessor -> {cfg.preproc_out_path}")
     logger.info(f"Saved meta         -> {cfg.meta_out_path}")
     logger.info(f"Best val RMSE      -> {best_val_rmse:.6f}")
+    os.makedirs(os.path.dirname(cfg.history_csv_path) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(cfg.history_plot_path) or ".", exist_ok=True)
 
+    history_df = pd.DataFrame(history)
+    history_df.to_csv(cfg.history_csv_path, index=False)
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(history_df["epoch"], history_df["train_loss"], label="Train Loss", marker="o")
+    plt.plot(history_df["epoch"], history_df["val_loss"], label="Val Loss", marker="o")
+    plt.plot(history_df["epoch"], history_df["val_rmse"], label="Val RMSE", marker="o")
+    plt.xlabel("Epoch")
+    plt.ylabel("Metric Value")
+    plt.title("Training History")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(cfg.history_plot_path, dpi=200)
+    plt.close()
 
 if __name__ == "__main__":
     main()
