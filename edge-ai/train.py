@@ -71,7 +71,7 @@ class TrainConfig:
 
 def load_config() -> TrainConfig:
     return TrainConfig(
-        csv_path=env_str("TRAIN_CSV_PATH", r"C:\Users\shubh\Documents\T77_Autonomous_Cold-Chain_Spoilage_Prediction_System\sensors_data.csv"),
+        csv_path=env_str("TRAIN_CSV_PATH", r"/home/gla/Desktop/T77_Autonomous_Cold-Chain_Spoilage_Prediction_System/sensors_data.csv"),
 
         # 2 sec interval -> 10 min history ~ 300 steps (you can tune)
         seq_len=env_int("SEQ_LEN", 300),
@@ -415,7 +415,6 @@ def main() -> None:
         mode="min",
         factor=0.5,
         patience=3,
-        verbose=True,
     )
     loss_fn = torch.nn.SmoothL1Loss(beta=0.1)
 
@@ -431,7 +430,12 @@ def main() -> None:
         logger.info(f"--- Epoch {epoch}/{cfg.epochs} ---")
         train_mse = train_one_epoch(model, train_loader, optimizer, loss_fn, device, log_every_batches=200)
         val_mse, val_rmse = eval_epoch(model, val_loader, loss_fn, device)
+        prev_lr = optimizer.param_groups[0]["lr"];
         scheduler.step(val_rmse)
+        new_lr = optimizer.param_groups[0]["lr"];
+
+        if new_lr != prev_lr:
+            logger.info(f"LR reduced: {prev_lr:.8f} -> {new_lr:.8f}")
 
         logger.info(f"Epoch {epoch} done | train_mse={train_mse:.6f} | val_mse={val_mse:.6f} | val_rmse={val_rmse:.6f}")
         current_lr = float(optimizer.param_groups[0]["lr"])
