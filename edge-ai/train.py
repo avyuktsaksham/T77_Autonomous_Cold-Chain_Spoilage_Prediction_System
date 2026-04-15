@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
-from pymongo import MongoClient
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 import joblib
 from dotenv import load_dotenv
@@ -48,9 +47,7 @@ def env_float(name: str, default: float) -> float:
 
 @dataclass(frozen=True)
 class TrainConfig:
-    mongodb_uri: str
-    mongodb_db: str
-    training_collection: str
+    csv_path: str
 
     seq_len: int
     batch_size: int
@@ -68,17 +65,13 @@ class TrainConfig:
     preproc_out_path: str
     meta_out_path: str
 
-    fetch_log_every: int
-
     history_csv_path: str
     history_plot_path: str
 
 
 def load_config() -> TrainConfig:
     return TrainConfig(
-        mongodb_uri=env_str("MONGODB_URI", ""),
-        mongodb_db=env_str("MONGODB_DB", "cold_chain_database"),
-        training_collection=env_str("MONGODB_COLLECTION_TRAINING", "sensors_data_training"),
+        csv_path=env_str("TRAIN_CSV_PATH", r"C:\Users\shubh\Documents\T77_Autonomous_Cold-Chain_Spoilage_Prediction_System\sensors_data.csv"),
 
         # 2 sec interval -> 10 min history ~ 300 steps (you can tune)
         seq_len=env_int("SEQ_LEN", 300),
@@ -99,8 +92,6 @@ def load_config() -> TrainConfig:
         model_out_path=env_str("MODEL_OUT_PATH", os.path.join("models", "best_model.pth")),
         preproc_out_path=env_str("PREPROC_OUT_PATH", os.path.join("models", "preprocessor.pkl")),
         meta_out_path=env_str("META_OUT_PATH", os.path.join("models", "model_meta.json")),
-
-        fetch_log_every=env_int("FETCH_LOG_EVERY", 50000),
 
         history_csv_path=env_str("HISTORY_CSV_PATH", os.path.join("models", "training_history.csv")),
         history_plot_path=env_str("HISTORY_PLOT_PATH", os.path.join("models", "training_history.png")),
@@ -203,80 +194,46 @@ class Preprocessor:
 
 
 def load_training_dataframe(cfg: TrainConfig) -> pd.DataFrame:
-    if not cfg.mongodb_uri:
-        raise ValueError("MONGODB_URI is required (MongoDB Atlas connection string)")
+    if not cfg.csv_path:
+        raise ValueError("TRAIN_CSV_PATH / csv_path is required")
+    if not os.path.exists(cfg.csv_path):
+        raise FileNotFoundError(f"CSV file not found: {cfg.csv_path}")
 
-    projection = {
-        "_id": 1,
-        "asset_id": 1,
-        "timestamp": 1,
-        "cargo_type": 1,
-        "scenario": 1,
-        "temperature": 1,
-        "humidity": 1,
-        "vibration": 1,
-        "door_open": 1,
-        "gps_lat": 1,
-        "gps_lon": 1,
-        "refrigeration_failed": 1,
-        "cumulative_exposure": 1,
-        "risk_proxy": 1,
-    }
+    logger.info(f"Loading training data from CSV: {cfg.csv_path}")
+    df = pd.read_csv(cfg.csv_path)
 
-    logger.info("Connecting to MongoDB...")
-    client = MongoClient(cfg.mongodb_uri)
-    coll = client[cfg.mongodb_db][cfg.training_collection]
+    # Required core columns
+    required_core = ["asset_id", "timestamp", "risk_proxy"]
+    missing_core = [c for c in required_core if c not in df.columns]
+    if missing_core:
+        raise ValueError(f"CSV is missing required columns: {missing_core}")
 
-    logger.info(f"Fetching training docs from {cfg.mongodb_db}.{cfg.training_collection} ...")
-    cursor = coll.find({}, projection=projection)
+    # Parse core fields
+    df["asset_id"] = df["asset_id"].astype(str)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+    df["risk_proxy"] = df["risk_proxy"].apply(_to_float)
 
-    rows: List[Dict[str, Any]] = []
-    n = 0
-    for d in cursor:
-        asset_id = d.get("asset_id")
-        ts = d.get("timestamp")
-        if not asset_id or not ts:
-            continue
-
-        row: Dict[str, Any] = {
-            "asset_id": str(asset_id),
-            "timestamp": pd.to_datetime(ts, utc=True, errors="coerce"),
-            "risk_proxy": _to_float(d.get("risk_proxy"), 0.0),
-
-            "cargo_type": str(d.get("cargo_type") or "unknown"),
-            "scenario": str(d.get("scenario") or "unknown"),
-
-            "temperature": _to_float(d.get("temperature"), 0.0),
-            "humidity": _to_float(d.get("humidity"), 0.0),
-            "vibration": _to_float(d.get("vibration"), 0.0),
-            "door_open": _to_int01(d.get("door_open")),
-            "gps_lat": _to_float(d.get("gps_lat"), 0.0),
-            "gps_lon": _to_float(d.get("gps_lon"), 0.0),
-            "refrigeration_failed": _to_int01(d.get("refrigeration_failed")),
-        }
-
-        for key in NUMERIC_COLS:
-            if key.startswith("cumulative_exposure."):
-                row[key] = _to_float(_get_nested(d, key), 0.0)
-
-        rows.append(row)
-        n += 1
-
-        if cfg.fetch_log_every > 0 and n % cfg.fetch_log_every == 0:
-            logger.info(f"Fetched/parsed {n} docs...")
-
-    client.close()
-
-    df = pd.DataFrame(rows)
-    df = df.dropna(subset=["timestamp"]).sort_values(["asset_id", "timestamp"]).reset_index(drop=True)
-
-    # Ensure all required cols exist
+    # Ensure categorical columns exist
     for c in CATEGORICAL_COLS:
         if c not in df.columns:
             df[c] = "unknown"
+        df[c] = df[c].astype(str).fillna("unknown")
+
+    # Ensure numeric columns exist and are numeric
     for c in NUMERIC_COLS:
         if c not in df.columns:
             df[c] = 0.0
+
+    # Convert 0/1 style boolean columns
+    df["door_open"] = df["door_open"].apply(_to_int01)
+    df["refrigeration_failed"] = df["refrigeration_failed"].apply(_to_int01)
+
+    # Convert all other numeric columns
+    for c in NUMERIC_COLS:
+        if c not in {"door_open", "refrigeration_failed"}:
+            df[c] = df[c].apply(_to_float)
+
+    df = df.dropna(subset=["timestamp"]).sort_values(["asset_id", "timestamp"]).reset_index(drop=True)
 
     logger.info(f"Training DataFrame ready: rows={len(df)} cols={len(df.columns)}")
     logger.info(f"Unique assets: {df['asset_id'].nunique()}")
@@ -386,9 +343,8 @@ def main() -> None:
     cfg = load_config()
     set_seed(cfg.seed)
 
-    masked_uri = cfg.mongodb_uri[:20] + "***" if cfg.mongodb_uri else ""
     logger.info("=== Edge-AI Training Started ===")
-    logger.info(f"MongoDB DB={cfg.mongodb_db} collection={cfg.training_collection} uri={masked_uri}")
+    logger.info(f"CSV_PATH={cfg.csv_path}")
     logger.info(f"SEQ_LEN={cfg.seq_len} BATCH_SIZE={cfg.batch_size} EPOCHS={cfg.epochs} LR={cfg.lr}")
     logger.info(f"HIDDEN_SIZE={cfg.hidden_size} NUM_LAYERS={cfg.num_layers} DROPOUT={cfg.dropout} VAL_SPLIT={cfg.val_split}")
 
@@ -518,8 +474,8 @@ def main() -> None:
 
     meta = {
         "trained_at_utc": datetime.now(timezone.utc).isoformat(),
-        "mongodb_db": cfg.mongodb_db,
-        "training_collection": cfg.training_collection,
+        "data_source": "csv",
+        "csv_path": cfg.csv_path,
         "seq_len": cfg.seq_len,
         "val_split": cfg.val_split,
         "time_split_cutoff_utc": str(cutoff_ts),

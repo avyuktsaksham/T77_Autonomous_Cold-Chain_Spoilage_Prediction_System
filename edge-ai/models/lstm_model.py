@@ -81,9 +81,9 @@ def count_parameters(model: nn.Module) -> int:
     return int(sum(p.numel() for p in model.parameters() if p.requires_grad))
 if __name__ == "__main__":
     nf = int(os.getenv("NUM_FEATURES", "16"))
-    hs = int(os.getenv("HIDDEN_SIZE", "128"))
-    nl = int(os.getenv("NUM_LAYERS", "2"))
-    dp = float(os.getenv("DROPOUT", "0.20"))
+    hs = int(os.getenv("HIDDEN_SIZE", "256"))
+    nl = int(os.getenv("NUM_LAYERS", "3"))
+    dp = float(os.getenv("DROPOUT", "0.15"))
 
     m = create_model(num_features=nf, hidden_size=hs, num_layers=nl, dropout=dp)
     print("[lstm_model] Model created")
