@@ -58,7 +58,6 @@ class PredictConfig:
     mongodb_db: str
     testing_collection: str
     mongodb_uri_2: str
-    mongodb_db_2: str
     predictions_collection: str
 
     model_path: str
@@ -79,10 +78,9 @@ def load_config() -> PredictConfig:
     return PredictConfig(
         mongodb_uri=env_str("MONGODB_URI", ""),
         mongodb_db=env_str("MONGODB_DB", "cold_chain_database"),
-        testing_collection=env_str("MONGODB_COLLECTION_TESTING", "sensors_data_testing"),
-        mongodb_uri_2=env_str("MONGODB_URI_2", ""),
-        mongodb_db_2=env_str("MONGODB_DB_2", "cold_chain_database"),
-        predictions_collection=env_str("MONGODB_COLLECTION_PREDICTION", "model_predictions"),
+        testing_collection=env_str("MONGODB_COLLECTION", "sensors_data"),
+        mongodb_uri_2=env_str("MONGODB_URI_PREDICTIONS", ""),
+        predictions_collection=env_str("MONGODB_COLLECTION_PREDICTIONS", "predictions_on_real_time_data"),
 
         model_path=env_str("MODEL_PATH", os.path.join("models", "best_model.pth")),
         meta_path=env_str("META_PATH", os.path.join("models", "model_meta.json")),
@@ -92,7 +90,7 @@ def load_config() -> PredictConfig:
 
         mqtt_enabled=env_bool("MQTT_ENABLED", True),
         mqtt_host=env_str("MQTT_HOST", "localhost"),
-        mqtt_port=env_int("MQTT_PORT", 1884),
+        mqtt_port=env_int("MQTT_PORT", 1881),
         mqtt_topic_prefix=env_str("MQTT_TOPIC_PREFIX", "coldchain").strip("/"),
         mqtt_qos=env_int("MQTT_QOS", 1),
 
@@ -252,12 +250,12 @@ class PredictorService:
         self.mongo = MongoClient(cfg.mongodb_uri)
         self.test_coll = self.mongo[cfg.mongodb_db][cfg.testing_collection]
         self.mongo_pred = MongoClient(cfg.mongodb_uri_2)
-        self.pred_coll = self.mongo_pred[cfg.mongodb_db_2][cfg.predictions_collection]
+        self.pred_coll = self.mongo_pred[cfg.mongodb_db][cfg.predictions_collection]
 
         self._ensure_indexes()
 
         logger.info("=== Predictor Initialized ===")
-        logger.info(f"TEST DB={cfg.mongodb_db}.{cfg.testing_collection} | "f"PRED DB={cfg.mongodb_db_2}.{cfg.predictions_collection}")
+        logger.info(f"TEST DB={cfg.mongodb_db}.{cfg.testing_collection} | "f"PRED DB={cfg.mongodb_db}.{cfg.predictions_collection}")
         logger.info(f"SEQ_LEN={self.seq_len} feature_dim={self.feature_dim} device={self.device}")
         logger.info(f"Poll every {cfg.poll_interval_sec}s | batch_limit={cfg.batch_limit}")
 
