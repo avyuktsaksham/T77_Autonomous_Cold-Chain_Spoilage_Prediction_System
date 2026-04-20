@@ -495,7 +495,7 @@ class FleetSimulator:
         time.sleep(self.publish_interval_sec)
 
 
-def create_default_fleet(publish_interval_sec: int = 1, fleet_size: int = 50) -> FleetSimulator:
+def create_default_fleet(publish_interval_sec: int = 2, fleet_size: int = 50) -> FleetSimulator:
     route_agra_delhi = Route(
         origin=(27.1767, 78.0081), destination=(28.7041, 77.1025), waypoints=[(27.4924, 77.6737)]
     )
@@ -539,7 +539,7 @@ def create_default_fleet(publish_interval_sec: int = 1, fleet_size: int = 50) ->
 
 if __name__ == "__main__":
     print("Supported cargo types:", ", ".join(CARGO_PROFILES.keys()))
-    fleet = create_default_fleet(publish_interval_sec=1, fleet_size=50)
+    fleet = create_default_fleet(publish_interval_sec=2, fleet_size=50)
 
     try:
         while True:

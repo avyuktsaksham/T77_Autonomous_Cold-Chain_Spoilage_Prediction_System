@@ -291,7 +291,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--client-key", default=_env_str("MQTT_CLIENT_KEY", ""))
     p.add_argument("--tls-insecure", action="store_true", default=_env_bool("MQTT_TLS_INSECURE", False))
 
-    p.add_argument("--interval", type=int, default=_env_int("PUBLISH_INTERVAL_SEC", 1))
+    p.add_argument("--interval", type=int, default=_env_int("PUBLISH_INTERVAL_SEC", 2))
     p.add_argument("--fleet-size", type=int, default=_env_int("FLEET_SIZE", 50))
 
     p.add_argument("--asset-id", default="TRUCK_001")
