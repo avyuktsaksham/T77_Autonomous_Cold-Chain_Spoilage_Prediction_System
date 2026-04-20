@@ -86,7 +86,7 @@ def load_config() -> PredictConfig:
         meta_path=env_str("META_PATH", os.path.join("models", "model_meta.json")),
 
         poll_interval_sec=env_float("POLL_INTERVAL_SEC", 1.0),
-        batch_limit=env_int("BATCH_LIMIT", 500),
+        batch_limit=env_int("BATCH_LIMIT", 15000),
 
         mqtt_enabled=env_bool("MQTT_ENABLED", True),
         mqtt_host=env_str("MQTT_HOST", "localhost"),
