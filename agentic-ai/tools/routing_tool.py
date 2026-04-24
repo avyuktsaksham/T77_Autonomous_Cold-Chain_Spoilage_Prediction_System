@@ -197,6 +197,18 @@ class RoutingTool:
 
     def _eta_hours(self, distance_km: float) -> float:
         return round(distance_km / self.average_speed_kmph, 2)
+    
+    def _effective_speed_kmph(
+        self,
+        scenario: Optional[str] = None,
+        refrigeration_failed: bool = False,
+    ) -> float:
+        scenario = str(scenario or "").strip().lower()
+        if refrigeration_failed or scenario == "refrigeration_failure":
+            return 40.0
+        if scenario in {"normal", "micro_excursions"}:
+            return 45.0
+        return self.average_speed_kmph
 
     def _center_to_dict(self, center: DistributionCenter, distance_km: float) -> Dict[str, Any]:
         return {
@@ -255,6 +267,8 @@ class RoutingTool:
                 continue
 
             distance_km = _haversine_km(lat, lon, center.location[0], center.location[1])
+            if distance_km > self.max_service_radius_km:
+                continue
             centers_with_distance.append(self._center_to_dict(center, distance_km))
 
         centers_with_distance.sort(
@@ -386,7 +400,11 @@ class RoutingTool:
         scenario = (scenario or "").strip().lower()
 
         distance_km = _safe_float(dc.get("distance_km"), 0.0)
-        eta_hours = _safe_float(dc.get("eta_hours"), self._eta_hours(distance_km))
+        effective_speed_kmph = self._effective_speed_kmph(
+            scenario=scenario,
+            refrigeration_failed=bool(refrigeration_failed),
+        )
+        eta_hours = round(distance_km / max(1.0, effective_speed_kmph), 2)
         capacity = max(0, int(_safe_float(dc.get("capacity"), 0)))
         available_capacity = max(0, int(_safe_float(dc.get("available_capacity"), 0)))
         refrigeration_status = str(dc.get("refrigeration_status", "unknown")).strip().lower()
@@ -410,6 +428,10 @@ class RoutingTool:
             can_arrive_before_failure = eta_hours <= time_to_failure_hours
             viability_score = _clamp((eta_buffer_hours + 2.0) / 4.0, 0.0, 1.0)
 
+        time_window_failed = (
+            time_to_failure_hours is not None and can_arrive_before_failure is False
+        )
+
         urgency_bonus = 0.0
         if refrigeration_failed:
             urgency_bonus += 0.10
@@ -420,7 +442,7 @@ class RoutingTool:
         if current_temp is not None and risk_score >= 0.70:
             urgency_bonus += 0.03
 
-        if not compatible or not operational or available_capacity <= 0:
+        if not compatible or not operational or available_capacity <= 0 or time_window_failed:
             benefit_score = 0.0
         else:
             benefit_score = 100.0 * (
@@ -458,6 +480,10 @@ class RoutingTool:
             else:
                 rationale.append(f"ETA exceeds failure window by {abs(eta_buffer_hours)} hours")
 
+        rationale.append(f"Assumed travel speed: {round(effective_speed_kmph, 2)} km/h")
+        if time_window_failed:
+            rationale.append("Center cannot be reached before the predicted failure window")
+
         return {
             "id": dc["id"],
             "name": dc["name"],
@@ -490,7 +516,9 @@ class RoutingTool:
 
         current_location: Location = (lat, lon)
         cargo_type = str(telemetry.get("cargo_type") or "").strip().lower() or None
-        risk_score = self._extract_risk_score(prediction)
+        predicted_risk_score = self._extract_risk_score(prediction)
+        telemetry_risk_score = _clamp(_safe_float(telemetry.get("risk_proxy"), 0.0), 0.0, 1.0)
+        risk_score = max(predicted_risk_score, telemetry_risk_score)
         time_to_failure_hours = self._extract_time_to_failure_hours(prediction)
 
         nearest = self.find_nearest_centers(
@@ -526,7 +554,7 @@ class RoutingTool:
         )
 
         alternatives = scored[: max(1, int(max_results))]
-        recommended_dc = alternatives[0] if alternatives else None
+        recommended_dc = alternatives[0] if alternatives and alternatives[0]["benefit_score"] > 0 else None
 
         return {
             "asset_id": telemetry.get("asset_id"),
@@ -535,7 +563,10 @@ class RoutingTool:
                 "lat": round(current_location[0], 6),
                 "lon": round(current_location[1], 6),
             },
+            "predicted_risk_score": round(float(predicted_risk_score), 3) if prediction else None,
+            "telemetry_risk_proxy": round(float(telemetry_risk_score), 3),
             "risk_score": round(float(risk_score), 3),
+            "reroute_recommended": recommended_dc is not None,
             "time_to_failure_hours": time_to_failure_hours,
             "recommended_dc": recommended_dc,
             "alternatives": alternatives,
