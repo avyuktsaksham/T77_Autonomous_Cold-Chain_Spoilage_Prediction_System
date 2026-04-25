@@ -182,6 +182,11 @@ class RefrigerationTool:
                 return _clamp(_safe_float(prediction[key], 0.0), 0.0, 1.0)
 
         return 0.0
+    
+    def _extract_telemetry_risk_score(self, telemetry: Optional[Dict[str, Any]]) -> float:
+        if not telemetry:
+            return 0.0
+        return _clamp(_safe_float(telemetry.get("risk_proxy"), 0.0), 0.0, 1.0)
 
     def _extract_time_to_failure_hours(self, prediction: Optional[Dict[str, Any]]) -> Optional[float]:
         if not prediction:
@@ -192,6 +197,7 @@ class RefrigerationTool:
             "time_to_failure",
             "timetofailurehours",
             "timetofailure",
+            "eta_to_failure_hours",
         ):
             if key in prediction and prediction[key] is not None:
                 val = _safe_float(prediction[key], -1.0)
@@ -246,20 +252,20 @@ class RefrigerationTool:
             return "decrease_cooling"
 
         if refrigeration_failed or scenario_name == "refrigeration_failure":
+            if current_temp >= hard_high or risk_score >= 0.90:
+                return "emergency_mode"
+
             if current_temp >= high or risk_score >= 0.40:
                 return "emergency_mode"
 
-        if current_temp >= hard_high or risk_score >= 0.90:
-            return "emergency_mode"
+            if temp_rate_c_per_hour is not None and _safe_float(temp_rate_c_per_hour, 0.0) >= 2.0:
+                return "max_cooling"
 
-        if temp_rate_c_per_hour is not None and _safe_float(temp_rate_c_per_hour, 0.0) >= 2.0:
-            return "max_cooling"
+            if current_temp >= high + 4.0 or risk_score >= 0.75:
+                return "max_cooling"
 
-        if current_temp >= high + 4.0 or risk_score >= 0.75:
-            return "max_cooling"
-
-        if current_temp > high or risk_score >= 0.40:
-            return "increase_cooling"
+            if current_temp > high:
+                return "increase_cooling"
 
         if profile.freeze_sensitive and current_temp <= profile.freeze_temp_c + 0.5:
             return "decrease_cooling"
@@ -367,7 +373,9 @@ class RefrigerationTool:
         scenario = str(telemetry.get("scenario") or "").strip().lower()
         refrigeration_failed = _to_bool(telemetry.get("refrigeration_failed"))
 
-        risk_score = self._extract_risk_score(prediction)
+        predicted_risk_score = self._extract_risk_score(prediction)
+        telemetry_risk_proxy = self._extract_telemetry_risk_score(telemetry)
+        risk_score = max(predicted_risk_score, telemetry_risk_proxy)
         time_to_failure_hours = self._extract_time_to_failure_hours(prediction)
 
         temp_degree_minutes = _safe_float(
@@ -428,7 +436,9 @@ class RefrigerationTool:
             "cargo_type": cargo_type or "unknown",
             "current_temp": round(current_temp, 2),
             "recommended_action": action,
-            "risk_score": round(risk_score, 3),
+            "predicted_risk_score": round(float(predicted_risk_score), 3) if prediction else None,
+            "telemetry_risk_proxy": round(float(telemetry_risk_proxy), 3),
+            "risk_score": round(float(risk_score), 3),
             "time_to_failure_hours": time_to_failure_hours,
             "target_band": {
                 "min_c": round(low, 2),
