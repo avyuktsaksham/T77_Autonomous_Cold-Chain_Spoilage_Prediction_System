@@ -1,17 +1,20 @@
 {
   "collection_name": "coldchainsops",
-  "collection_version": "phase5-step5.1-final-aligned",
+  "collection_version": "phase5-step5.1-final-aligned-v2",
   "vectorstore_path": "C:\\Users\\shubh\\Documents\\T77_Autonomous_Cold-Chain_Spoilage_Prediction_System\\genai-rag\\vectorstore",
   "sop_documents_path": "C:\\Users\\shubh\\Documents\\T77_Autonomous_Cold-Chain_Spoilage_Prediction_System\\genai-rag\\sopdocuments",
   "reset_collection": true,
-  "document_count": 29,
+  "document_count": 32,
   "categories": {
     "cargo": 10,
     "cooling": 1,
+    "correlation": 1,
+    "decision": 1,
     "door": 1,
     "equipment": 1,
     "exposure": 1,
     "humidity": 1,
+    "messaging": 1,
     "notification": 2,
     "rag": 1,
     "risk": 1,
@@ -22,7 +25,8 @@
     "vibration": 1
   },
   "sources": {
-    "Internal Architecture": 3,
+    "Internal Agent Contract": 1,
+    "Internal Architecture": 4,
     "Internal Cargo Policy": 10,
     "Internal Communication SOP": 2,
     "Internal Decision Policy": 1,
@@ -30,13 +34,14 @@
     "Internal Equipment SOP": 1,
     "Internal GenAI SOP": 1,
     "Internal Handling SOP": 2,
+    "Internal Messaging Contract": 1,
     "Internal Quality SOP": 2,
     "Internal Refrigeration SOP": 1,
     "Internal Routing SOP": 2,
     "Internal Simulation Guide": 3
   },
   "cargo_types": {
-    "all": 19,
+    "all": 22,
     "bloodplasma": 1,
     "dairy": 1,
     "flowers": 1,
@@ -52,6 +57,9 @@
     "sop-telemetry-schema",
     "sop-prediction-schema",
     "sop-decision-schema",
+    "sop-decision-action-taxonomy",
+    "sop-mqtt-topic-contract",
+    "sop-asset-correlation-contract",
     "sop-risk-band-interpretation",
     "sop-cumulative-exposure",
     "sop-temperature-excursion",
@@ -79,5 +87,5 @@
     "sop-cargo-bloodplasma",
     "sop-cargo-flowers"
   ],
-  "generated_at": "2026-04-25T07:15:32.751112+00:00"
+  "generated_at": "2026-04-25T08:38:14.489632+00:00"
 }

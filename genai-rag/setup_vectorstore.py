@@ -22,7 +22,7 @@ COLLECTION_DESCRIPTION = (
     "Cold-chain SOPs, schema references, routing playbooks, cooling procedures, "
     "notification policies, and cargo handling guidance"
 )
-COLLECTION_VERSION = "phase5-step5.1-final-aligned"
+COLLECTION_VERSION = "phase5-step5.1-final-aligned-v2"
 
 
 SUPPORTED_CARGO_TYPES: Sequence[str] = (
@@ -223,31 +223,120 @@ def build_builtin_documents() -> List[VectorDocument]:
             doc_id="sop-decision-schema",
             title="Canonical decision payload structure",
             content=(
-                "Decision records should include decisionid, assetid, timestamp, analysis, "
-                "actions, and executionresults. Analysis should summarize riskscore, risklevel, "
-                "temperature status, contributing factors, time to failure, and exposure summary. "
-                "Actions should be explicit, tool-oriented, and explainable so that downstream "
-                "notification and RAG services can justify what the system chose and why."
+                "Decision records should include decisionid, assetid, timestamp, analysis, actions, "
+                "and executionresults. Analysis should summarize riskscore, risklevel, "
+                "contributingfactors, timetofailure, current telemetry context, and any "
+                "refrigeration or cumulative exposure concerns. Actions should be explicit, "
+                "tool-oriented, and stored as structured items with keys such as type, tool, "
+                "priority, description, and action-specific fields like action, targetdc, dcname, "
+                "or etahours. Execution results should preserve the tool response for each action "
+                "so downstream notification and RAG services can justify what the system chose, "
+                "what it executed, and why."
             ),
             source="Internal Architecture",
             category="schema",
             document_type="reference",
-            fields="decisionid,assetid,timestamp,analysis,actions,executionresults",
-            keywords="decision schema analysis actions executionresults explainable agent",
+            fields=(
+                "decisionid,assetid,timestamp,"
+                "analysis.riskscore,analysis.risklevel,analysis.contributingfactors,"
+                "analysis.timetofailure,analysis.refrigerationfailed,analysis.cumulativeexposure,"
+                "actions.type,actions.tool,actions.priority,actions.description,actions.action,"
+                "actions.targetdc,actions.dcname,actions.etahours,"
+                "executionresults.action,executionresults.result"
+            ),
+            keywords=(
+                "decision schema analysis actions executionresults contributing factors "
+                "tool priority reroute cooling notification explainable agent"
+            ),
             priority=9,
+        ),
+        make_doc(
+            doc_id="sop-decision-action-taxonomy",
+            title="Canonical decision action taxonomy",
+            content=(
+                "Decision actions should follow a stable taxonomy so tools and explanations stay "
+                "aligned. Common action types are monitor, adjustcooling, reroute, "
+                "emergencyreroute, notify, and escalate. For adjustcooling actions, the action "
+                "field should carry one of hold, ecomode, increasecooling, decreasecooling, "
+                "maxcooling, or emergencymode. Routing actions should include targetdc, dcname, "
+                "and etahours when available, and notification actions should include "
+                "severity-aware descriptions."
+            ),
+            source="Internal Agent Contract",
+            category="decision",
+            document_type="reference",
+            actions=(
+                "monitor,adjustcooling,reroute,emergencyreroute,notify,escalate,"
+                "hold,ecomode,increasecooling,decreasecooling,maxcooling,emergencymode"
+            ),
+            fields=(
+                "actions.type,actions.tool,actions.priority,actions.description,"
+                "actions.action,actions.targetdc,actions.dcname,actions.etahours"
+            ),
+            keywords=(
+                "decision action taxonomy monitor adjustcooling reroute emergencyreroute "
+                "notify escalate cooling modes"
+            ),
+            priority=10,
+        ),
+        make_doc(
+            doc_id="sop-mqtt-topic-contract",
+            title="Canonical MQTT topic contract",
+            content=(
+                "Slash-separated MQTT topics should be used under the coldchain prefix. "
+                "Per-asset telemetry goes to coldchain/telemetry/{assetid}; fleet snapshots go to "
+                "coldchain/telemetry/all; predictions go to coldchain/predictions/{assetid}; "
+                "decisions go to coldchain/decisions/{assetid}; explanation services may publish "
+                "coldchain/explanations/{assetid} and "
+                "coldchain/decision-explanations/{assetid}; publisher status uses "
+                "coldchain/status/{publisherid}. RAG guidance should prefer these canonical topic "
+                "families over legacy flat topic names."
+            ),
+            source="Internal Messaging Contract",
+            category="messaging",
+            document_type="reference",
+            fields=(
+                "topicprefix,telemetry,predictions,decisions,explanations,"
+                "decisionexplanations,status,assetid,publisherid"
+            ),
+            keywords=(
+                "mqtt topics coldchain telemetry all predictions decisions explanations "
+                "decision explanations status slash topics"
+            ),
+            priority=9,
+        ),
+        make_doc(
+            doc_id="sop-asset-correlation-contract",
+            title="Asset correlation contract across services",
+            content=(
+                "The assetid is the primary join key across telemetry, predictions, decisions, "
+                "notifications, and explanations. Prediction services should relate the latest "
+                "sequence to the same assetid, decision services should use the latest telemetry "
+                "and prediction for that assetid, and explanation services should ground "
+                "explanations in the same correlated asset timeline. If a message cannot be "
+                "correlated by assetid, it should not be explained as if it belongs to another shipment."
+            ),
+            source="Internal Architecture",
+            category="correlation",
+            document_type="reference",
+            fields="assetid,telemetry,prediction,decision,notification,explanation",
+            keywords="assetid correlation join telemetry prediction decision explanation",
+            priority=10,
         ),
         make_doc(
             doc_id="sop-risk-band-interpretation",
             title="Risk score interpretation and intervention bands",
             content=(
                 "When both a model prediction and a telemetry-side proxy are available, use the "
-                "higher signal for conservative decision support. Operational interpretation: "
-                "low risk is below 0.40 and generally means continue monitoring; moderate risk is "
-                "0.40 to below 0.75 and should trigger cooling review and notification; high risk "
-                "is 0.75 to below 0.95 and should trigger reroute evaluation plus strong cooling; "
-                "critical risk is 0.95 or above and requires escalation, urgent intervention, and "
-                "time-sensitive handling. Any refrigeration failure or time-to-failure at or below "
-                "1 hour should be treated as critical even if the numeric risk score is still catching up."
+                "higher signal for conservative decision support. Operational interpretation should "
+                "mirror the decision workflow: low risk is below 0.30 and generally means continue "
+                "monitoring; moderate risk is 0.30 to below 0.70 and should trigger cooling review "
+                "and notification; high risk is 0.70 to below 0.85 and should trigger reroute "
+                "evaluation plus strong cooling; critical risk is 0.85 or above and requires urgent "
+                "intervention, stronger notification, and time-sensitive handling. Scores at or above "
+                "0.95 should be treated as immediate escalation conditions inside the critical band. "
+                "Any refrigeration failure or time-to-failure at or below 1 hour should be treated "
+                "as critical even if the numeric risk score is still catching up."
             ),
             source="Internal Decision Policy",
             category="risk",
@@ -617,7 +706,8 @@ def _load_external_text_document(path: Path) -> List[VectorDocument]:
 
     title = first_non_empty_line(text, path.stem.replace("-", " ").title())
     rel_source = f"External SOP File: {path.relative_to(BASE_DIR).as_posix()}"
-    doc_id = f"external-{slugify(path.stem)}"
+    rel_key = path.relative_to(BASE_DIR).as_posix()
+    doc_id = stable_id("external-text", rel_key)
 
     return [
         make_doc(
