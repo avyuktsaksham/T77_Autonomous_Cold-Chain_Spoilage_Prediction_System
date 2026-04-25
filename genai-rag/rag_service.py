@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
+from dotenv import load_dotenv
+load_dotenv()
 
 import chromadb
 from chromadb.config import Settings
