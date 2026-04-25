@@ -11,10 +11,7 @@ from typing import Any, Dict, Optional
 import paho.mqtt.client as mqtt
 from dotenv import load_dotenv
 
-try:
-    from agents.decision_agent import ColdChainDecisionAgent
-except ImportError:
-    from .agents.decision_agent import ColdChainDecisionAgent
+from agents.decision_agent import ColdChainDecisionAgent
 
 
 def env_str(name: str, default: str = "") -> str:
@@ -69,7 +66,7 @@ def load_config() -> DecisionEngineConfig:
     return DecisionEngineConfig(
         mqtt_enabled=env_bool("MQTT_ENABLED", True),
         mqtt_host=env_str("MQTT_HOST", "localhost"),
-        mqtt_port=env_int("MQTT_PORT", 1884),
+        mqtt_port=env_int("MQTT_PORT", 1881),
         mqtt_topic_prefix=env_str("MQTT_TOPIC_PREFIX", "coldchain").strip("/"),
         mqtt_qos=env_int("MQTT_QOS", 1),
         telemetry_cache_ttl_sec=env_float("DECISION_ENGINE_TELEMETRY_CACHE_TTL_SEC", 1800.0),
@@ -113,13 +110,18 @@ class DecisionEngineService:
         return f"{self.config.mqtt_topic_prefix}/decisions/{asset_id}"
 
     def _extract_asset_id(self, payload: Dict[str, Any], topic: str) -> Optional[str]:
-        asset_id = _safe_str(payload.get("asset_id"))
-        if asset_id:
-            return asset_id
+        for key in ("asset_id", "assetid"):
+            asset_id = _safe_str(payload.get(key))
+            if asset_id and asset_id.lower() != "all":
+                return asset_id
 
-        parts = topic.strip("/").split("/")
-        if len(parts) >= 3:
-            return _safe_str(parts[-1]) or None
+        if topic:
+            parts = topic.strip("/").split("/")
+            if len(parts) >= 3:
+                last_part = _safe_str(parts[-1])
+                if last_part and last_part.lower() != "all":
+                    return last_part
+
         return None
 
     def _cache_payload(
@@ -221,6 +223,26 @@ class DecisionEngineService:
         logger.debug(f"Cached telemetry for asset_id={asset_id}")
         self._process_asset_if_ready(asset_id)
 
+    def _handle_telemetry_batch(self, payload: Dict[str, Any]) -> None:
+        batch = payload.get("batch")
+        if not isinstance(batch, list):
+            logger.warning("Ignoring telemetry batch payload without list 'batch'")
+            return
+
+        for item in batch:
+            if not isinstance(item, dict):
+                continue
+
+            asset_id = self._extract_asset_id(item, "")
+            if not asset_id:
+                logger.debug("Skipping batched telemetry item without asset_id")
+                continue
+
+            item["asset_id"] = asset_id
+            self._cache_payload(self.latest_telemetry, asset_id, item)
+            logger.debug(f"Cached batched telemetry for asset_id={asset_id}")
+            self._process_asset_if_ready(asset_id)
+
     def _handle_prediction(self, topic: str, payload: Dict[str, Any]) -> None:
         asset_id = self._extract_asset_id(payload, topic)
         if not asset_id:
@@ -275,7 +297,9 @@ class DecisionEngineService:
             topic = msg.topic.strip()
             prefix = self.config.mqtt_topic_prefix.strip("/")
 
-            if topic.startswith(f"{prefix}/telemetry/"):
+            if topic == f"{prefix}/telemetry/all":
+                self._handle_telemetry_batch(data)
+            elif topic.startswith(f"{prefix}/telemetry/"):
                 self._handle_telemetry(topic, data)
             elif topic.startswith(f"{prefix}/predictions/"):
                 self._handle_prediction(topic, data)
