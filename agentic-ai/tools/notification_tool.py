@@ -144,6 +144,11 @@ class NotificationTool:
                 return _clamp(_safe_float(prediction[key], 0.0), 0.0, 1.0)
 
         return 0.0
+    
+    def _extract_telemetry_risk_score(self, telemetry: Optional[Dict[str, Any]]) -> float:
+        if not telemetry:
+            return 0.0
+        return _clamp(_safe_float(telemetry.get("risk_proxy"), 0.0), 0.0, 1.0)
 
     def _extract_time_to_failure_hours(self, prediction: Optional[Dict[str, Any]]) -> Optional[float]:
         if not prediction:
@@ -188,6 +193,22 @@ class NotificationTool:
         if decision_type in {"escalation", "escalate"}:
             return "escalation"
 
+        # Align with routing_tool.py outputs
+        if (
+            "recommended_dc" in decision
+            or "alternatives" in decision
+            or "reroute_recommended" in decision
+        ):
+            return "reroute"
+
+        # Align with refrigeration_tool.py outputs
+        if "recommended_action" in decision or "command_preview" in decision:
+            if _to_bool(telemetry.get("refrigeration_failed")) or str(
+                telemetry.get("scenario") or ""
+            ).strip().lower() == "refrigeration_failure":
+                return "cooling_failure"
+            return "cooling_adjustment"
+
         if _to_bool(telemetry.get("refrigeration_failed")):
             return "cooling_failure"
         if _to_bool(telemetry.get("door_open")):
@@ -206,13 +227,19 @@ class NotificationTool:
         prediction = prediction or {}
         decision = decision or {}
 
-        risk_score = self._extract_risk_score(prediction)
+        predicted_risk_score = self._extract_risk_score(prediction)
+        telemetry_risk_score = self._extract_telemetry_risk_score(telemetry)
+        risk_score = max(predicted_risk_score, telemetry_risk_score)
+
         time_to_failure_hours = self._extract_time_to_failure_hours(prediction)
         refrigeration_failed = _to_bool(telemetry.get("refrigeration_failed"))
         door_open = _to_bool(telemetry.get("door_open"))
         temperature = _safe_float(telemetry.get("temperature"), 0.0)
         scenario = str(telemetry.get("scenario") or "").strip().lower()
         priority = str(decision.get("priority") or "").strip().lower()
+
+        recommended_action = str(decision.get("recommended_action") or "").strip().lower()
+        reroute_recommended = _to_bool(decision.get("reroute_recommended"))
 
         severity = "low"
 
@@ -239,6 +266,23 @@ class NotificationTool:
 
         if temperature >= 30.0:
             severity = self._max_severity(severity, "critical")
+
+        # Align with refrigeration_tool.py outputs
+        if recommended_action == "emergency_mode":
+            severity = self._max_severity(severity, "critical")
+        elif recommended_action == "max_cooling":
+            severity = self._max_severity(severity, "high")
+        elif recommended_action == "increase_cooling":
+            severity = self._max_severity(severity, "medium")
+
+        # Align with routing_tool.py outputs
+        if alert_type == "reroute" and reroute_recommended:
+            if risk_score >= 0.70 or (
+                time_to_failure_hours is not None and time_to_failure_hours <= 3.0
+            ):
+                severity = self._max_severity(severity, "high")
+            else:
+                severity = self._max_severity(severity, "medium")
 
         if priority:
             severity = self._max_severity(severity, self._normalize_severity(priority))
@@ -315,7 +359,9 @@ class NotificationTool:
         refrigeration_failed = _to_bool(telemetry.get("refrigeration_failed"))
         door_open = _to_bool(telemetry.get("door_open"))
 
-        risk_score = self._extract_risk_score(prediction)
+        predicted_risk_score = self._extract_risk_score(prediction)
+        telemetry_risk_score = self._extract_telemetry_risk_score(telemetry)
+        risk_score = max(predicted_risk_score, telemetry_risk_score)
         time_to_failure_hours = self._extract_time_to_failure_hours(prediction)
 
         parts: List[str] = [
@@ -335,7 +381,9 @@ class NotificationTool:
         parts.append(f"scenario={scenario}")
         parts.append(f"door_open={'yes' if door_open else 'no'}")
         parts.append(f"refrigeration_failed={'yes' if refrigeration_failed else 'no'}")
-        parts.append(f"predicted_risk={round(risk_score, 3)}")
+        parts.append(f"telemetry_risk_proxy={round(telemetry_risk_score, 3)}")
+        parts.append(f"predicted_risk={round(predicted_risk_score, 3)}")
+        parts.append(f"risk_score={round(risk_score, 3)}")
 
         if time_to_failure_hours is not None:
             parts.append(f"time_to_failure_hours={round(time_to_failure_hours, 2)}")
@@ -344,6 +392,16 @@ class NotificationTool:
             parts.append(f"reason={reason}")
 
         decision_type = str(decision.get("type") or "").strip().lower()
+        if not decision_type:
+            if (
+                "recommended_dc" in decision
+                or "alternatives" in decision
+                or "reroute_recommended" in decision
+            ):
+                decision_type = "reroute"
+            elif "recommended_action" in decision or "command_preview" in decision:
+                decision_type = "cooling_adjustment"
+
         if decision_type:
             parts.append(f"decision={decision_type}")
 
@@ -351,17 +409,46 @@ class NotificationTool:
         if recommended_action:
             parts.append(f"recommended_action={recommended_action}")
 
-        dc_name = decision.get("dc_name") or decision.get("target_dc_name") or decision.get("target_name")
-        if dc_name:
-            parts.append(f"target_dc={dc_name}")
+        command_preview = decision.get("command_preview")
+        if isinstance(command_preview, dict):
+            if command_preview.get("target_temp") is not None:
+                parts.append(
+                    f"target_temp={round(_safe_float(command_preview.get('target_temp')), 2)}C"
+                )
+            if command_preview.get("power_change_pct") is not None:
+                parts.append(
+                    f"power_change_pct={round(_safe_float(command_preview.get('power_change_pct')), 2)}"
+                )
 
-        target_dc = decision.get("target_dc")
-        if target_dc and not dc_name:
-            parts.append(f"target_dc={target_dc}")
+        recommended_dc = decision.get("recommended_dc")
+        if isinstance(recommended_dc, dict):
+            dc_name = recommended_dc.get("name") or recommended_dc.get("id")
+            if dc_name:
+                parts.append(f"target_dc={dc_name}")
+            if recommended_dc.get("eta_hours") is not None:
+                parts.append(
+                    f"eta_hours={round(_safe_float(recommended_dc.get('eta_hours')), 2)}"
+                )
+            if recommended_dc.get("distance_km") is not None:
+                parts.append(
+                    f"distance_km={round(_safe_float(recommended_dc.get('distance_km')), 2)}"
+                )
+            if recommended_dc.get("benefit_score") is not None:
+                parts.append(
+                    f"benefit_score={round(_safe_float(recommended_dc.get('benefit_score')), 2)}"
+                )
+        else:
+            dc_name = decision.get("dc_name") or decision.get("target_dc_name") or decision.get("target_name")
+            if dc_name:
+                parts.append(f"target_dc={dc_name}")
 
-        eta_hours = decision.get("eta_hours")
-        if eta_hours is not None:
-            parts.append(f"eta_hours={round(_safe_float(eta_hours), 2)}")
+            target_dc = decision.get("target_dc")
+            if target_dc and not dc_name:
+                parts.append(f"target_dc={target_dc}")
+
+            eta_hours = decision.get("eta_hours")
+            if eta_hours is not None:
+                parts.append(f"eta_hours={round(_safe_float(eta_hours), 2)}")
 
         exposure = telemetry.get("cumulative_exposure") or {}
         temp_degree_minutes = exposure.get("temp_degree_minutes")
