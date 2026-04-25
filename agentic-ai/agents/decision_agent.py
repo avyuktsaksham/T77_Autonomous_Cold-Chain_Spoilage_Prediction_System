@@ -48,9 +48,9 @@ class ColdChainDecisionAgent:
         self.decision_history: List[Dict[str, Any]] = []
 
         self.RISK_THRESHOLDS: Dict[str, float] = {
-            "low": 0.30,
-            "moderate": 0.70,
-            "high": 0.85,
+            "low": 0.40,
+            "moderate": 0.75,
+            "high": 0.95,
             "critical": 0.95,
         }
 
@@ -72,6 +72,11 @@ class ColdChainDecisionAgent:
                 return max(0.0, min(1.0, _safe_float(prediction[key], 0.0)))
 
         return 0.0
+    
+    def _extract_telemetry_risk_score(self, telemetry: Optional[Dict[str, Any]]) -> float:
+        if not telemetry:
+            return 0.0
+        return max(0.0, min(1.0, _safe_float(telemetry.get("risk_proxy"), 0.0)))
 
     def _extract_time_to_failure_hours(self, prediction: Optional[Dict[str, Any]]) -> Optional[float]:
         if not prediction:
@@ -136,7 +141,9 @@ class ColdChainDecisionAgent:
     def analyze_situation(self, prediction: Dict[str, Any], telemetry: Dict[str, Any]) -> Dict[str, Any]:
         normalized_prediction = self._normalize_prediction(prediction)
 
-        risk_score = self._extract_risk_score(normalized_prediction)
+        predicted_risk_score = self._extract_risk_score(normalized_prediction)
+        telemetry_risk_score = self._extract_telemetry_risk_score(telemetry)
+        risk_score = max(predicted_risk_score, telemetry_risk_score)
         time_to_failure_hours = self._extract_time_to_failure_hours(normalized_prediction)
 
         cargo_type = str(telemetry.get("cargo_type") or "").strip().lower() or None
@@ -178,6 +185,8 @@ class ColdChainDecisionAgent:
         temp_degree_minutes = _safe_float(exposure.get("temp_degree_minutes"), 0.0)
         humidity_percent_minutes = _safe_float(exposure.get("humidity_percent_minutes"), 0.0)
         door_open_minutes = _safe_float(exposure.get("door_open_minutes"), 0.0)
+        vibration_warn_minutes = _safe_float(exposure.get("vibration_warn_minutes"), 0.0)
+        vibration_critical_minutes = _safe_float(exposure.get("vibration_critical_minutes"), 0.0)
         out_of_range_minutes = _safe_float(exposure.get("out_of_range_minutes_in_hour"), 0.0)
 
         if temp_degree_minutes > 0:
@@ -186,6 +195,10 @@ class ColdChainDecisionAgent:
             contributing_factors.append("cumulative_humidity_exposure")
         if door_open_minutes > 0:
             contributing_factors.append("cumulative_door_open_exposure")
+        if vibration_warn_minutes > 0:
+            contributing_factors.append("cumulative_vibration_exposure")
+        if vibration_critical_minutes > 0:
+            contributing_factors.append("critical_vibration_exposure")
         if out_of_range_minutes > 10.0:
             contributing_factors.append("sustained_out_of_range_exposure")
 
@@ -199,7 +212,7 @@ class ColdChainDecisionAgent:
         )
 
         requires_action = (
-            risk_score >= self.RISK_THRESHOLDS["moderate"]
+            risk_score >= self.RISK_THRESHOLDS["low"]
             or refrigeration_failed
             or current_temp < temp_band_min
             or current_temp > temp_band_max
@@ -214,6 +227,8 @@ class ColdChainDecisionAgent:
             temperature_status = "within_range"
 
         return {
+            "predicted_risk_score": round(predicted_risk_score, 3),
+            "telemetry_risk_proxy": round(telemetry_risk_score, 3),
             "risk_score": round(risk_score, 3),
             "risk_level": risk_level,
             "contributing_factors": contributing_factors,
@@ -229,6 +244,8 @@ class ColdChainDecisionAgent:
                 "temp_degree_minutes": round(temp_degree_minutes, 2),
                 "humidity_percent_minutes": round(humidity_percent_minutes, 2),
                 "door_open_minutes": round(door_open_minutes, 2),
+                "vibration_warn_minutes": round(vibration_warn_minutes, 2),
+                "vibration_critical_minutes": round(vibration_critical_minutes, 2),
                 "out_of_range_minutes_in_hour": round(out_of_range_minutes, 2),
             },
         }
@@ -252,10 +269,13 @@ class ColdChainDecisionAgent:
         cooling_plan = self.refrigeration_tool.recommend_action(telemetry, prediction)
         command_preview = cooling_plan.get("command_preview") or {}
 
+        recommended_action = cooling_plan.get("recommended_action", "hold")
+
         return {
             "type": "adjust_cooling",
-            "action": cooling_plan.get("recommended_action", "hold"),
-            "description": f"Adjust refrigeration: {cooling_plan.get('recommended_action', 'hold')}",
+            "action": recommended_action,
+            "recommended_action": recommended_action,
+            "description": f"Adjust refrigeration: {recommended_action}",
             "priority": priority,
             "tool": "refrigeration",
             "asset_id": telemetry.get("asset_id"),
@@ -299,6 +319,7 @@ class ColdChainDecisionAgent:
             "benefit_score": recommended_dc.get("benefit_score"),
             "recommended_dc": recommended_dc,
             "alternatives": route_plan.get("alternatives", []),
+            "reroute_recommended": bool(route_plan.get("reroute_recommended", False)),
         }
 
     def _build_notify_action(
@@ -363,7 +384,7 @@ class ColdChainDecisionAgent:
                 self._build_notify_action(
                     telemetry=telemetry,
                     priority="medium",
-                    alert_type="spoilage_risk",
+                    alert_type="cooling_adjustment",
                     description="Alert logistics team of moderate spoilage risk",
                     reason="Moderate spoilage risk detected",
                 )
@@ -392,7 +413,7 @@ class ColdChainDecisionAgent:
                 self._build_notify_action(
                     telemetry=telemetry,
                     priority="high",
-                    alert_type="spoilage_risk" if reroute_action is None else "reroute",
+                    alert_type="reroute" if reroute_action is not None else "cooling_adjustment",
                     description="High-priority alert for logistics and quality teams",
                     reason="High spoilage risk requires immediate intervention",
                 )
@@ -429,7 +450,9 @@ class ColdChainDecisionAgent:
                 self._build_notify_action(
                     telemetry=telemetry,
                     priority="critical",
-                    alert_type="cooling_failure" if refrigeration_failed else "spoilage_risk",
+                    alert_type=(
+                        "cooling_failure" if refrigeration_failed else ("reroute" if reroute_action is not None else "cooling_adjustment")
+                    ),
                     description="Critical alert issued to operations leadership",
                     reason="Critical spoilage risk detected",
                 )
@@ -503,6 +526,38 @@ class ColdChainDecisionAgent:
             elif action_type == "notify":
                 notify_payload = _deep_copy_dict(action)
                 notify_payload["type"] = action.get("alert_type") or "spoilage_risk"
+
+                if notify_payload["type"] == "reroute":
+                    reroute_action = next(
+                        (
+                            a for a in actions
+                            if str(a.get("type") or "").strip().lower() == "reroute"
+                        ),
+                        None,
+                    )
+                    if reroute_action:
+                        notify_payload["reroute_recommended"] = reroute_action.get("reroute_recommended", True)
+                        notify_payload["recommended_dc"] = _deep_copy_dict(reroute_action.get("recommended_dc"))
+                        notify_payload["alternatives"] = list(reroute_action.get("alternatives", []))
+                        notify_payload["eta_hours"] = reroute_action.get("eta_hours")
+                        notify_payload["distance_km"] = reroute_action.get("distance_km")
+                        notify_payload["benefit_score"] = reroute_action.get("benefit_score")
+
+                if notify_payload["type"] in {"cooling_adjustment", "cooling_failure"}:
+                    cooling_action = next(
+                        (
+                            a for a in actions
+                            if str(a.get("type") or "").strip().lower() == "adjust_cooling"
+                        ),
+                        None,
+                    )
+                    if cooling_action:
+                        notify_payload["recommended_action"] = (
+                            cooling_action.get("recommended_action") or cooling_action.get("action")
+                        )
+                        notify_payload["command_preview"] = _deep_copy_dict(cooling_action.get("command_preview"))
+                        notify_payload["target_band"] = _deep_copy_dict(cooling_action.get("target_band"))
+                        notify_payload["rationale"] = list(cooling_action.get("rationale", []))
 
                 result = self.notification_tool.notify_decision(
                     telemetry=telemetry,
