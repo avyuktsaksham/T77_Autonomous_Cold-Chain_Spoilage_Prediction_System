@@ -2,6 +2,9 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
 import os
+import subprocess
+import time
+import sys
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 import logging
@@ -494,5 +497,77 @@ def health_check():
     return jsonify({"status": "healthy"}), 200
 
 
+class ServiceManager:
+    def __init__(self):
+        self.processes = []
+        self.services = [
+            {
+                "name": "MQTT Server",
+                "cwd": r"C:\Program Files\mosquitto",
+                "cmd": "mosquitto -v -c mosquitto.conf"
+            },
+            {
+                "name": "MQTT Subscription",
+                "cwd": r"C:\Program Files\mosquitto",
+                "cmd": 'mosquitto_sub -h localhost -p 1881 -t "coldchain/telemetry/#" -v'
+            },
+            {
+                "name": "Data Generator",
+                "cwd": r".\iot-simulator",
+                "cmd": "python mqtt_publisher.py"
+            },
+            {
+                "name": "Edge AI Predict",
+                "cwd": r".\edge-ai",
+                "cmd": "python predict.py"
+            },
+            {
+                "name": "Agentic AI Predict",
+                "cwd": r".\agentic-ai",
+                "cmd": "python decision_engine.py"
+            },
+            {
+                "name": "GenAI RAG Service",
+                "cwd": r".\genai-rag",
+                "cmd": "python rag_mqtt_service.py"
+            }
+        ]
+        
+    def start_all(self):
+        CREATE_NEW_CONSOLE = 0x00000010
+        logger.info("Starting background services in different terminals...")
+        for service in self.services:
+            logger.info(f"Starting {service['name']}...")
+            try:
+                # cmd /k keeps the terminal open, useful for debugging
+                full_cmd = f'cmd /k "{service["cmd"]}"'
+                cwd_path = os.path.abspath(service["cwd"])
+                p = subprocess.Popen(full_cmd, cwd=cwd_path, creationflags=CREATE_NEW_CONSOLE)
+                self.processes.append({"name": service["name"], "pid": p.pid, "process": p})
+                time.sleep(2) # Give it 2 seconds to initialize
+            except Exception as e:
+                logger.error(f"Failed to start {service['name']}: {e}")
+
+    def stop_all(self):
+        logger.info("Shutting down background services in reverse order...")
+        for proc_info in reversed(self.processes):
+            logger.info(f"Terminating {proc_info['name']} (PID: {proc_info['pid']})...")
+            try:
+                subprocess.run(['taskkill', '/F', '/T', '/PID', str(proc_info['pid'])], capture_output=True)
+                time.sleep(1) # Small delay for graceful shutdown visual effect
+            except Exception as e:
+                logger.error(f"Error terminating {proc_info['name']}: {e}")
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    manager = ServiceManager()
+    
+    # Start phases 1 to 6
+    manager.start_all()
+    
+    try:
+        logger.info("Starting Phase 7: Backend Server...")
+        app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received. Shutting down...")
+    finally:
+        manager.stop_all()
