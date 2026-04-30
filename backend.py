@@ -509,7 +509,7 @@ class ServiceManager:
             {
                 "name": "MQTT Subscription",
                 "cwd": r"C:\Program Files\mosquitto",
-                "cmd": 'mosquitto_sub -h localhost -p 1881 -t "coldchain/telemetry/#" -v'
+                "cmd": 'mosquitto_sub -h 2f9c78e18b3c4f14a118c581f84a81cb.s1.eu.hivemq.cloud -p 8883 --cafile "" -u "%MQTT_USERNAME%" -P "%MQTT_PASSWORD%" -t "coldchain/telemetry/#" -v'
             },
             {
                 "name": "Data Generator",
@@ -559,15 +559,18 @@ class ServiceManager:
                 logger.error(f"Error terminating {proc_info['name']}: {e}")
 
 if __name__ == '__main__':
-    manager = ServiceManager()
-    
-    # Start phases 1 to 6
-    manager.start_all()
-    
-    try:
-        logger.info("Starting Phase 7: Backend Server...")
-        app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received. Shutting down...")
-    finally:
-        manager.stop_all()
+    if os.environ.get("ENVIRONMENT") == "production":
+        # On Render (Linux): services are managed separately, just run Flask
+        logger.info("Running in Production Mode. Services managed by Render.")
+        app.run(host='0.0.0.0', port=5000)
+    else:
+        # On Local (Windows): spawn all 6 service terminals automatically
+        manager = ServiceManager()
+        manager.start_all()
+        try:
+            logger.info("Starting Phase 7: Backend Server...")
+            app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
+        except KeyboardInterrupt:
+            logger.info("Keyboard interrupt received. Shutting down...")
+        finally:
+            manager.stop_all()
