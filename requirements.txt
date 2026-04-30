@@ -1,5 +1,6 @@
 paho-mqtt==1.6.1
-pymongo==4.11.1
+pymongo[srv]==4.11.1
+dnspython
 python-dotenv==1.2.2
 torch
 numpy==1.24.3
