@@ -1,0 +1,248 @@
+.truck-selector-container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  padding: 40px 20px;
+}
+
+.selector-header {
+  max-width: 1200px;
+  margin: 0 auto 40px;
+  position: relative;
+}
+
+.back-button {
+  background: white;
+  border: 2px solid #667eea;
+  color: #667eea;
+  padding: 10px 20px;
+  border-radius: 25px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  margin-bottom: 20px;
+}
+
+.back-button:hover {
+  background: #667eea;
+  color: white;
+}
+
+.selector-header h1 {
+  font-size: 2.5rem;
+  margin: 20px 0 10px 0;
+  color: #2d3748;
+}
+
+.selector-subtitle {
+  color: #718096;
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.search-section {
+  max-width: 1200px;
+  margin: 0 auto 40px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 15px 20px;
+  font-size: 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  background: white;
+  transition: all 0.3s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.trucks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.truck-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.truck-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  border-color: #667eea;
+}
+
+.truck-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  border-bottom: 2px solid #f0f0f0;
+  padding-bottom: 15px;
+}
+
+.truck-card-header h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #2d3748;
+}
+
+.cargo-badge {
+  background: #667eea;
+  color: white;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.truck-card-body {
+  margin-bottom: 15px;
+}
+
+.truck-info,
+.truck-status {
+  margin-bottom: 10px;
+}
+
+.truck-info p,
+.truck-status p {
+  margin: 8px 0;
+  color: #4a5568;
+  font-size: 0.95rem;
+}
+
+.label {
+  font-weight: 600;
+  color: #2d3748;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 15px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.status-badge.active {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.truck-card-footer {
+  border-top: 2px solid #f0f0f0;
+  padding-top: 15px;
+}
+
+.view-button {
+  width: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.view-button:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.loading,
+.error-message,
+.no-results {
+  text-align: center;
+  padding: 60px 20px;
+  font-size: 1.2rem;
+  color: #4a5568;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.error-message {
+  color: #dc2626;
+  background: #fee2e2;
+  border-radius: 10px;
+  padding: 20px;
+}
+
+/* Monochrome overrides */
+.truck-selector-container {
+  background: linear-gradient(160deg, #101012 0%, #1a1a1c 100%);
+}
+
+.selector-header h1 {
+  color: #f4f4f5;
+}
+
+.selector-subtitle,
+.truck-info p,
+.truck-status p,
+.loading,
+.no-results {
+  color: #c4c4c7;
+}
+
+.back-button {
+  background: #171718;
+  border-color: #4a4a4f;
+  color: #f4f4f5;
+}
+
+.back-button:hover {
+  background: #f4f4f5;
+  color: #101012;
+}
+
+.search-input,
+.truck-card {
+  background: #171718;
+  border-color: #2f2f34;
+  color: #f4f4f5;
+}
+
+.search-input:focus {
+  border-color: #7b7b82;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+}
+
+.truck-card:hover {
+  border-color: #7b7b82;
+}
+
+.truck-card-header h3,
+.label {
+  color: #efeff1;
+}
+
+.cargo-badge,
+.status-badge.active,
+.view-button {
+  background: #f4f4f5;
+  color: #111113;
+}
+
+.view-button:hover {
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
+}
+
+.error-message {
+  background: #2a1a1a;
+  color: #f2c7c7;
+}

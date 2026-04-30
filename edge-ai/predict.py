@@ -291,6 +291,18 @@ class PredictorService:
         y = float(self.model(Xt).detach().cpu().numpy().reshape(-1)[0])
         return y
 
+    @staticmethod
+    def _estimate_time_to_failure_hours(pred_risk: float) -> float:
+        """
+        Convert normalized risk score (0..1) to estimated time-to-failure hours.
+        Higher predicted risk => lower remaining safe time.
+        """
+        risk = max(0.0, min(1.0, float(pred_risk)))
+        min_hours = 6.0
+        max_hours = 72.0
+        estimated = max_hours - (risk * (max_hours - min_hours))
+        return round(max(min_hours, min(max_hours, estimated)), 1)
+
     def poll_and_predict_forever(self) -> None:
         self.mqtt_out.connect()
 
@@ -355,12 +367,14 @@ class PredictorService:
 
                 pred_risk = self._predict_from_buffer(buf)
                 actual_risk = _to_float(d.get("risk_proxy"), 0.0)
+                time_to_failure_hours = self._estimate_time_to_failure_hours(pred_risk)
 
                 pred_doc = {
                     "asset_id": asset_id,
                     "timestamp": ts,
                     "predicted_risk_proxy": float(pred_risk),
                     "actual_risk_proxy": float(actual_risk),
+                    "time_to_failure_hours": float(time_to_failure_hours),
                     "source_doc_id": d.get("_id"),
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "model_meta_path": self.cfg.meta_path,
@@ -377,7 +391,12 @@ class PredictorService:
 
                 self.mqtt_out.publish_prediction(
                     asset_id,
-                    {"asset_id": asset_id, "timestamp": ts, "predicted_risk_proxy": float(pred_risk)},
+                    {
+                        "asset_id": asset_id,
+                        "timestamp": ts,
+                        "predicted_risk_proxy": float(pred_risk),
+                        "time_to_failure_hours": float(time_to_failure_hours),
+                    },
                 )
 
                 predicted_count += 1
