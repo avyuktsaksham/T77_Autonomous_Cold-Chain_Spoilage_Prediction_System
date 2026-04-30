@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://t77-autonomous-cold-chain-spoilage.onrender.com/api/$1"
+    }
+  ]
+}
